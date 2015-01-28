@@ -57,6 +57,7 @@ private:
 public:
     int GetX() { return x; } // Standardowe akcesory
     int GetY() { return y; }
+    bool IsDead() { return hp <= 0; } // Czy potworek jest martwy?
     // Ustawianie pocz¹tkowych informacji o potworku:
     void Set(int x, int y, int hp, int attack, char ch, int color)
     {
@@ -80,7 +81,7 @@ public:
     // Zaatakowanie potworka przez gracza
     void Attack(int dmg)
     {
-        if(hp <= 0) return;
+        if(IsDead()) return;
         static char buffer[256];
         sprintf(buffer, "You hit a monster for %d dmg!", dmg);
         addMsg(buffer);
@@ -92,6 +93,8 @@ public:
             addMsg("The monster is dead!");
         }
     }
+    // Tutaj siedzi ca³e A.I. potworka. Definicja poni¿ej w pliku
+    void Update();
 };
 
 std::vector<Monster> monsters;
@@ -169,7 +172,10 @@ void draw() // Pêtla rysowania
     }
 
     attron(COLOR_PAIR(1));
-    mvprintw(playerY + levelY, playerX + levelX, "@"); // Rysujemy postaæ gracza kolorem 1. UWAGA mvprintw bierze najpierw y, potem x!
+    if(playerHp > 0)
+        mvprintw(playerY + levelY, playerX + levelX, "@"); // Rysujemy postaæ gracza kolorem 1. UWAGA mvprintw bierze najpierw y, potem x!
+    else
+        mvprintw(playerY + levelY, playerX + levelX, "%%"); // Jesteœmy trupem...
     attroff(COLOR_PAIR(1));
 
     attron(COLOR_PAIR(1)); // Drukujemy statystyki na ekran
@@ -191,6 +197,12 @@ void update()
                 // wiadomoœci s¹ przechowywane tylko do nastêpnego wciœniêtego klawisza)
     int ch = getch(); // Pobieramy znak z klawiatury
 
+    if(playerHp <= 0)
+    {
+        addMsg("You're dead!");
+        return; // W momencie œmierci dalsza aktualizacja gry nie ma sensu...
+    }
+
     int xprev = playerX; // Zapamiêtujemy poprzedni¹ pozycjê gracza, bo mo¿emy
     int yprev = playerY; // wpaœæ na potworka!
     // W zale¿noœci od znaku sprawdzamy czy pole jest puste, a je¿eli tak
@@ -207,11 +219,18 @@ void update()
         case KEY_RIGHT: case KEY_B3:    if(level[playerX+1][playerY]) ++playerX; break;
         case KEY_UP:    case KEY_A2:    if(level[playerX][playerY-1]) --playerY; break;
         case KEY_DOWN:  case KEY_C2:    if(level[playerX][playerY+1]) ++playerY; break;
+        case KEY_B2: break; // Czekamy w miejscu
+        default: return; // Nie idziemy dalej je¿eli wcisêliœmy inny klawisz
+    }
+
+    for(int i = 0; i < monsters.size(); i++) // Wykonajmy AI dla wszystkich potworków
+    {
+        monsters[i].Update(); // A.I. potworków (ruch i atak)
     }
 
     for(int i = 0; i < monsters.size(); i++) // Sprawdzamy, czy wpadliœmy na potworka
     {
-        if(monsters[i].GetX() == playerX && monsters[i].GetY() == playerY)
+        if(monsters[i].GetX() == playerX && monsters[i].GetY() == playerY && !monsters[i].IsDead())
         {
             monsters[i].Attack(playerAttack); // Tak! To go atakujemy
             playerX = xprev; // I cofamy zmianê pozycji (nie mo¿na "wejœæ" na potworka)
@@ -267,9 +286,6 @@ void generateRoom(int x1, int y1, int x2, int y2) // Funkcja rekurencyjna tworz¹
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////////
-// NOWE:
-
 void clearMsg()
 {
     mesg = ""; // Czyœcimy bufor komunikatów
@@ -298,5 +314,79 @@ void generateMonsters() // Losujemy potworki
         m.Set(x, y, 15, 3, 'Z', 3); // znaleŸliœmy! To go stwórzmy
 
         monsters.push_back(m); // i dodajmy do listy potworków
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+// NOWE:
+
+void Monster::Update() // Tutaj siedzi ca³e A.I. potworka
+{
+    if(IsDead()) return; // martwy potworek nic nie robi!
+
+    // SprawdŸmy czy w tile'ach +/- 1 od potworka
+    // znajduje sie gracz. Je¿eli tak, to go atakujemy!
+    for(int y = -1; y <= 1; y++)
+    {
+        for(int x = -1; x <= 1; x++)
+        {
+            if(this->x + x == playerX &&
+               this->y + y == playerY)
+            {
+                static char buffer[256];
+                sprintf(buffer, "The monster hits you for %d dmg!", attack);
+                addMsg(buffer);
+
+                playerHp -= attack;
+                if(playerHp <= 0)
+                {
+                    addMsg("You're dead!");
+                }
+                return; // Atak to wszystko co robimy
+            }
+        }
+    }
+    // Ok, nie ma w pobli¿u gracza :-(
+    int moveX = 0;
+    int moveY = 0;
+
+    // Ruszmy siê o jedno pole w kierunku gracza!
+    if(playerX < this->x) moveX = -1;
+    if(playerX > this->x) moveX = 1;
+    if(playerY < this->y) moveY = -1;
+    if(playerY > this->y) moveY = 1;
+
+    bool isXoccupied = false; // czy w osi X trafiamy na innego potworka
+    bool isYoccupied = false; // analogicznie dla osi y
+    bool isBothOccupied = false; // analogicznie dla bu soi
+
+    for(int i = 0; i < monsters.size(); i++) // Sprawdzamy czy potworek nie wchodzi w innego potworka
+    {
+        if(&monsters[i] != this && !monsters[i].IsDead()) // w innego, tzn. nie w siebie i nie w trupa!
+        {
+            if(monsters[i].GetX() == this->x + moveX && monsters[i].GetY() == this->y)
+                isXoccupied = true;
+            if(monsters[i].GetX() == this->x && monsters[i].GetY() == this->y + moveY)
+                isYoccupied = true;
+            if(monsters[i].GetX() == this->x + moveX && monsters[i].GetY() == this->y + moveY)
+                isBothOccupied = true;
+        }
+    }
+
+    // Najpierw próbujemy siê ruszyæ po skosie
+    if(level[this->x + moveX][this->y + moveY]) // czy jest to puste pole?
+    {
+        if(!isBothOccupied) // i to nie zajête przez innego potworka?
+        {
+            this->x += moveX; // skoro tak, to ruszmy siê!
+            this->y += moveY;
+        }
+    }
+    else // Po skosie siê nie da, spróbujmy po osi
+    {
+        if(!isXoccupied && level[this->x + moveX][this->y]) // mo¿e w poziomie?
+            this->x += moveX;
+        else if(!isYoccupied && level[this->x][this->y + moveY]) // albo w pionie?
+            this->y += moveY;
     }
 }
