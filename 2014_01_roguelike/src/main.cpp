@@ -1,13 +1,3 @@
-/*
-Projekt do skompilowania wymaga biblioteki PDCurses:
-
-http://pdcurses.sourceforge.net/
-
-W innych systemach (Linux/MacOS X) mo¿na tak¿e u¿yæ nCurses.
-
-Sterowanie: strza³ki albo numpad (klawisz Num-lock MUSI BYÆ WY£¥CZONY!)
-*/
-
 #include <string>
 #include <vector>
 #include <curses.h>
@@ -15,37 +5,236 @@ Sterowanie: strza³ki albo numpad (klawisz Num-lock MUSI BYÆ WY£¥CZONY!)
 #include <stdlib.h>
 #include <time.h>
 
-const int levelW = 80; // Wymiary planszy. Standardowo konsola
-const int levelH = 25; // ma 80 kolumn i 25 wierszy
 
+bool plansza[80][25];
 
-bool level[levelW][levelH]; // Zazwyczaj pola planszy s¹ obiektem jakiejœ struktury
-                    // ale poniewa¿ potrzebujemy tylko jednej informacji (œciana/wolne)
-                    // mo¿emy siê "wymigaæ" z tablic¹ booli
+int x = 1;
+int y = 3;
+int hp = 100;
+int hp_max = 100;
+int kills = 0;
+int attack = 15;
+std::string mesg;
 
-int playerX = levelW / 2;   // Pocz¹tkowe koordynaty gracza to po³owa planszy
-int playerY = levelH / 2;
-
-void generateLevel(); // Deklaracje funkcji (definicje poni¿ej main() )
-void draw();
-void update();
-
-int main() // G³ówna funkcja programu
+void clearMsg()
 {
-    initscr(); // W³¹cza PDCurses
-    start_color(); // W³¹cza tryb kolorowania
-    raw(); // Wy³¹cza buforowanie
-    noecho(); // Wy³¹cza wyœwietlanie wpisywanego znaku na ekran
-    keypad(stdscr, TRUE); // W³¹cza klawiaturê numeryczn¹
-    srand(time(NULL)); // Na potrzeby rand()'a
+    mesg = "";
+}
 
-    generateLevel(); // Tworzy poziom
+void addMsg(const char * str)
+{
+    mesg += str;
+    mesg += " ";
+}
 
-    init_pair(1, COLOR_GREEN, COLOR_BLACK); // Tworzy pary kolorów
+class Monster
+{
+private:
+    int x, y;
+    int hp;
+    int attack;
+    char c;
+public:
+    int GetX() { return x; }
+    int GetY() { return y; }
+    void Set(int x, int y, int hp, int attack, char c)
+    {
+        this->x = x;
+        this->y = y;
+        this->hp = hp;
+        this->attack = attack;
+        this->c = c;
+    }
+    void Draw()
+    {
+        if(hp <= 0)
+            mvprintw(y, x, "%%");
+        else
+            mvprintw(y, x, "%c", c);
+    }
+    void Attack(int dmg)
+    {
+        if(hp <= 0) return;
+        char buffer[256];
+        sprintf(buffer, "You hit a monster for %d dmg!", dmg);
+        addMsg(buffer);
+
+        hp -= dmg;
+        if(hp <= 0)
+            addMsg("The monster is dead!");
+    }
+};
+
+std::vector<Monster> monsters;
+
+void generateLineH(int x1, int x2, int y)
+{
+    for(int i = x1; i <= x2; i++)
+    {
+        plansza[i][y] = false;
+    }
+}
+
+void generateLineW(int y1, int y2, int x)
+{
+    for(int j = y1; j <= y2; j++)
+    {
+        plansza[x][j] = false;
+    }
+}
+
+void generateRoom(int x1, int y1, int x2, int y2)
+{
+    if(x2 - x1 < 9) return;
+    if(y2 - y1 < 9) return;
+
+    if(rand()%2 == 0)
+    {
+        int x = rand()%((x2-x1)/2) + (x2 - x1)/4 + x1;
+        generateLineW(y1, y2, x);
+
+        generateRoom(x1, y1, x, y2);
+        generateRoom(x, y1, x2, y2);
+
+        int y = rand()%((y2-y1)/2) + (y2 - y1)/4 + y1;
+        plansza[x][y] = true;
+    }
+    else
+    {
+        int y = rand()%((y2-y1)/2) + (y2 - y1)/4 + y1;
+        generateLineH(x1, x2, y);
+
+        generateRoom(x1, y1, x2, y);
+        generateRoom(x1, y, x2, y2);
+
+        int x = rand()%((x2-x1)/2) + (x2 - x1)/4 + x1;
+        plansza[x][y] = true;
+    }
+}
+
+void generateMonsters()
+{
+    for(int i = 0; i < 20; i++)
+    {
+        Monster m;
+
+        int x = 0;
+        int y = 0;
+        do
+        {
+            x = rand()%80;
+            y = (rand()%22)+2;
+        } while(!plansza[x][y]);
+
+        m.Set(x, y, 15, 3, 'Z');
+
+        monsters.push_back(m);
+    }
+}
+
+void generateLevel()
+{
+    for(int i = 0; i < 80; i++)
+    {
+        for(int j = 0; j < 25; j++)
+        {
+            plansza[i][j] = true;
+        }
+    }
+    generateLineH(0, 79, 2);
+    generateLineH(0, 79, 23);
+    generateLineW(2, 23, 0);
+    generateLineW(2, 23, 79);
+
+    generateRoom(0, 2, 79, 23);
+
+    generateMonsters();
+}
+
+
+void draw()
+{
+    clear();
+
+    attron(COLOR_PAIR(2));
+    for(int i = 0; i < 80; i++)
+    {
+        for(int j = 2; j < 24; j++)
+        {
+            if(plansza[i][j])
+                mvprintw(j, i, ".");
+            else
+                mvprintw(j, i, "#");
+        }
+    }
+    attroff(COLOR_PAIR(2));
+
+    for(int i = 0; i < monsters.size(); i++)
+    {
+        monsters[i].Draw();
+    }
+
+    attron(COLOR_PAIR(1));
+    mvprintw(y, x, "@");
+    attroff(COLOR_PAIR(1));
+
+    attron(COLOR_PAIR(1));
+    mvprintw(24, 1, "HP: %d/%d (KILLS: %d)", hp, hp_max, kills);
+    attroff(COLOR_PAIR(1));
+
+    attron(COLOR_PAIR(3));
+    mvprintw(0, 0, "%s", mesg.substr(0, 80).c_str());
+    if(mesg.length() >= 80)
+        mvprintw(1, 0, "%s", mesg.substr(80, 160).c_str());
+    attroff(COLOR_PAIR(3));
+
+    refresh();
+}
+
+void update()
+{
+    clearMsg();
+    int ch = getch();
+    int xprev = x;
+    int yprev = y;
+    switch(ch)
+    {
+        case KEY_A1: if(plansza[x-1][y-1]) { --x; --y; } break;
+        case KEY_A3: if(plansza[x+1][y-1]) { ++x; --y; } break;
+        case KEY_C1: if(plansza[x-1][y+1]) { --x; ++y; } break;
+        case KEY_C3: if(plansza[x+1][y+1]) { ++x; ++y; } break;
+        case KEY_LEFT: case KEY_B1: if(plansza[x-1][y]) --x; break;
+        case KEY_RIGHT: case KEY_B3: if(plansza[x+1][y]) ++x; break;
+        case KEY_UP: case KEY_A2: if(plansza[x][y-1]) --y; break;
+        case KEY_DOWN: case KEY_C2: if(plansza[x][y+1]) ++y; break;
+    }
+    for(int i = 0; i < monsters.size(); i++)
+    {
+        if(monsters[i].GetX() == x && monsters[i].GetY() == y)
+        {
+            monsters[i].Attack(attack);
+            x = xprev;
+            y = yprev;
+        }
+    }
+}
+
+int main()
+{
+    initscr();
+    start_color();
+    raw();
+    noecho();
+    keypad(stdscr, TRUE);
+    srand(time(NULL));
+
+    generateLevel();
+
+    init_pair(1, COLOR_GREEN, COLOR_BLACK);
     init_pair(2, COLOR_RED, COLOR_BLACK);
     init_pair(3, COLOR_CYAN, COLOR_BLACK);
 
-    for(;;) // Pêtla gry
+    for(;;)
     {
         draw();
         update();
@@ -55,62 +244,4 @@ int main() // G³ówna funkcja programu
     getch();
     endwin();
     return 0;
-}
-
-void generateLevel() // Generujemy planszê
-{
-    for(int i = 0; i < levelW; i++)
-    {
-        for(int j = 0; j < levelH; j++)
-        {
-            level[i][j] = rand() % 5; // ... w taki sposób, ¿e mamy 1/5 szansy na œcianê (false)
-                                      // i 4/5 szansy na pust¹ przestrzeñ
-        }
-    }
-}
-
-
-void draw() // Pêtla rysowania
-{
-    clear(); // Czyœcimy ekran
-
-    attron(COLOR_PAIR(2)); // Uruchamiamy kolor 2 (zdefiniowany w main() )
-    for(int i = 0; i < levelW; i++)
-    {
-        for(int j = 0; j < levelH; j++)
-        {
-            if(level[i][j])
-                mvprintw(j, i, "."); // pusta przestrzeñ. UWAGA mvprintw bierze najpierw y, potem x!
-            else
-                mvprintw(j, i, "#"); // œciana. UWAGA mvprintw bierze najpierw y, potem x!
-        }
-    }
-    attroff(COLOR_PAIR(2)); // Wy³¹czamy kolor 2
-
-    attron(COLOR_PAIR(1));
-    mvprintw(playerY, playerX, "@"); // Rysujemy postaæ gracza kolorem 1. UWAGA mvprintw bierze najpierw y, potem x!
-    attroff(COLOR_PAIR(1));
-
-    refresh();
-}
-
-void update()
-{
-    int ch = getch(); // Pobieramy znak z klawiatury
-
-    // W zale¿noœci od znaku sprawdzamy czy pole jest puste, a je¿eli tak
-    // to przesuwamy tam gracza
-    switch(ch)
-    {
-        // A1/A3/C1/C3 to klawisze z numpada
-        case KEY_A1: if(level[playerX-1][playerY-1]) { --playerX; --playerY; } break;
-        case KEY_A3: if(level[playerX+1][playerY-1]) { ++playerX; --playerY; } break;
-        case KEY_C1: if(level[playerX-1][playerY+1]) { --playerX; ++playerY; } break;
-        case KEY_C3: if(level[playerX+1][playerY+1]) { ++playerX; ++playerY; } break;
-        // Ta sztuczka pozwala nam obs³u¿yæ klawisze numpada i strza³ki w tym samym miejscu
-        case KEY_LEFT:  case KEY_B1:    if(level[playerX-1][playerY]) --playerX; break;
-        case KEY_RIGHT: case KEY_B3:    if(level[playerX+1][playerY]) ++playerX; break;
-        case KEY_UP:    case KEY_A2:    if(level[playerX][playerY-1]) --playerY; break;
-        case KEY_DOWN:  case KEY_C2:    if(level[playerX][playerY+1]) ++playerY; break;
-    }
 }
